@@ -1,0 +1,14 @@
+name: Ubercart Restrict Quantity
+type: module
+description: 'Ubercart Restrict Quantity in Products.'
+package: Ubercart Restrict Quantity
+# core: 8.x
+#dependencies:
+#  - drupal:node
+#  - examples:examples
+
+# Information added by Drupal.org packaging script on 2017-10-20
+version: '8.x-1.x-dev'
+core: '8.x'
+project: 'uc_restrict_qty'
+datestamp: 1508531361

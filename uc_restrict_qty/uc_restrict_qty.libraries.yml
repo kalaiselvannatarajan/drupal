@@ -1,0 +1,14 @@
+# Show how weights work.
+js_example.weights:
+  # Add css file.
+  css:
+    component:
+      css/node_tiltle.css: {}
+  # Add js files.
+  js:
+    # weight is used as example attribute, but please avoid it and instead use
+    # dependencies for order loading.
+    js/node_tiltle.js: { weight: -1 }
+  dependencies:
+    - core/jquery
+    - core/drupalSettings

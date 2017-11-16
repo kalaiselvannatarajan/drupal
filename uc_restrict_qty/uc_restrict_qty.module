@@ -1,0 +1,493 @@
+<?php
+/**
+ * @file
+ * Grants roles upon accepted payment of products.
+ *
+ * The uc_role module will grant specified roles upon purchase of specified
+ * products. Granted roles can be set to have a expiration date. Users can also
+ * be notified of the roles they are granted and when the roles will
+ * expire/need to be renewed/etc.
+ */
+
+
+use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\Url;
+use Drupal\user\Entity\User;
+use Drupal\user\UserInterface;
+
+
+/**
+ * Implements hook_theme().
+ */
+function uc_restrict_qty_theme() {
+  return array(
+    'restrict_qty_field' => array(
+      'render element' => 'form',
+    ),
+  );
+}
+
+/**
+ * Implements hook_uc_product_feature().
+ */
+function uc_restrict_qty_uc_product_feature() {
+  $features[] = array(
+    'id' => 'restrict_qty',
+    'title' => t('Restrict Qty'),
+    'callback' => 'Drupal\uc_restrict_qty\Form\RestrictQuantityForm',
+    'delete' => 'uc_restrict_qty_feature_delete',
+    'settings' => 'Drupal\uc_restrict_qty\Form\RestrictQuantitySettingsForm',
+  );
+  return $features;
+}
+
+
+/**
+ * Implements hook_uc_add_to_cart().
+ */
+function uc_restrict_qty_uc_add_to_cart($nid, $qty, $data) {
+  $limit = variable_get('uc_restrict_qty_global', 0);
+  $replacecart = variable_get('uc_restrict_qty_global_replace', FALSE);
+  $result = NULL; // added by Jeff
+
+  // If a global restriction on the number of items has been made.
+  if ($limit > 0) {
+    if (count(uc_cart_get_contents()) >= $limit) {
+      if ($replacecart) {
+        db_query("DELETE FROM {uc_cart_products} WHERE cart_id = :cart", array(':cart' => uc_cart_get_id()));
+        $result[] = array('success' => TRUE);
+      }
+      else {
+        $message = format_plural($limit, 'Sorry, you may only have 1 item in your cart. You must checkout or remove the item in your cart before adding a different item.',
+        'Sorry, you may only have a total of @count items in your cart.  You must checkout or remove items from your cart before adding others.');
+
+        $result[] = array(
+          'success' => FALSE,
+          'message' => $message,
+        );
+      }
+    }
+  }
+
+  // Check lifetime product-level limit.
+  if ($data['restrict_qty']['lifetime']) {
+    if (!$data['restrict_qty']['rest']) {
+      $message = t('Sorry, you have reached the quantity limit for this product. You can not order more items of this product.');
+
+      $result[] = array(
+      'success' => FALSE,
+      'message' => $message,
+      );
+    }
+  }
+  return $result;
+}
+
+
+
+  function getInfo() {
+    return array(
+      'name'  => t('Various functional tests'),
+      'description'  => '',
+      'group' => t('UC Restrict Qty'),
+    );
+  }
+  
+  function drupalCreateProduct($price = 100) {
+    // Create a product
+    $node = array(
+      'type' => 'product',
+      'sell_price' => $price,
+      'list_price' => '',
+      'cost' => '',
+      'model' => '',
+      'weight' => '',
+      'weight_units' => '',
+      'length' => '',
+      'width' => '',
+      'height' => '',
+      'length_units' => '',
+      'default_qty' => '',
+      'pkg_qty' => '',
+      'shippable' => 0,
+      'ordering' => '',
+    );
+    $product = $this->drupalCreateNode($node);
+    return $product;
+  }
+
+  function drupalCreateOrder($products = array(), $user = NULL) {
+    if (!isset($user)) {
+      $user = $this->drupalCreateUser();
+    }
+
+    $order = uc_order_new($user->uid);
+    if (!empty($products)) {
+      foreach ($products as $product) {
+        $product_data->order_product_id = 0;
+        $product_data->nid = $product->nid;
+        $product_data->qty = 1;
+        $product_data->title = $product->title;
+        $product_data->model = $product->model;
+        $product_data->cost = $product->cost;
+        $product_data->price = $product->sell_price;
+        $order->products[] = $product_data;
+      }
+    }
+
+    $order->delivery_first_name = $this->randomName();
+    $order->delivery_last_name = $this->randomName();
+    $order->delivery_phone = $this->randomName();
+    $order->delivery_company = $this->randomName();
+    $order->delivery_street1 = $this->randomName();
+    $order->delivery_street2 = $this->randomName();
+    $order->delivery_city = $this->randomName();
+    $order->delivery_zone = $this->randomName();
+    $order->delivery_postal_code = $this->randomName();
+    $order->delivery_country = $this->randomName();
+    $order->billing_first_name = $this->randomName();
+    $order->billing_last_name = $this->randomName();
+    $order->billing_phone = $this->randomName();
+    $order->billing_company = $this->randomName();
+    $order->billing_street1 = $this->randomName();
+    $order->billing_street2 = $this->randomName();
+    $order->billing_city = $this->randomName();
+    $order->billing_zone = $this->randomName();
+    $order->billing_postal_code = $this->randomName();
+    $order->billing_country = $this->randomName();
+    $order->payment_method = $this->randomName();
+    $order->manufacturer = $this->randomName();
+    $order->weight = rand();
+    $order->data = array();
+
+    uc_order_save($order);
+    return $order;
+  }
+
+  function testAdminProductSettings() {
+    $admin = $this->drupalCreateUser(array('administer product features'));
+    $this->drupalLogin($admin);
+
+    // Test settings' validators
+    $settings = array(
+      'uc_restrict_qty_global' => 'test',
+      'uc_restrict_qty_default_qty' => 1,
+      'uc_restrict_qty_default_lifetime' => 1,
+    );
+    $this->drupalPost('admin/store/settings/products/edit/features', $settings, t('Save configuration'));
+    $this->assertText(t('You must enter 0 or a positive number value.'), 'Settings validation [Global limit]');
+
+    $settings = array(
+      'uc_restrict_qty_global' => 1,
+      'uc_restrict_qty_default_qty' => 'test',
+      'uc_restrict_qty_default_lifetime' => 1,
+    );
+    $this->drupalPost('admin/store/settings/products/edit/features', $settings, t('Save configuration'));
+    $this->assertText(t('You must enter 0 or a positive number value.'), 'Settings validation [Default maximum limit for a product]');
+
+    // Submit real data
+    $settings = array(
+      'uc_restrict_qty_global' => 5,
+      'uc_restrict_qty_default_qty' => 2,
+      'uc_restrict_qty_default_lifetime' => 1,
+    );
+    $this->drupalPost('admin/store/settings/products/edit/features', $settings, t('Save configuration'));
+    $this->assertText(t('The configuration options have been saved.'), 'Settings saved');
+
+    $product = $this->drupalCreateProduct();
+
+    // Check if feature available
+    $this->drupalGet('node/'. $product->nid .'/edit/features');
+    $this->assertRaw('<option value="restrict_qty">'. t('Restrict Qty') .'</option>', 'Check if feature ready to be added');
+
+    // Test feature form default values
+    $test = array('feature' => 'restrict_qty');
+    $this->drupalPost('node/'. $product->nid .'/edit/features', $test, t('Add'));
+    $this->assertRaw('<input type="text" maxlength="5" name="quantity" id="edit-quantity" size="5" value="'. $settings['uc_restrict_qty_default_qty'] .'" class="form-text" />', 'Check if defaults prefilled [qty]');
+    $this->assertRaw('<input type="checkbox" name="lifetime" id="edit-lifetime" value="1"  checked="checked"  class="form-checkbox" />', 'Check if defaults prefilled [lifetime]');
+
+    // Test feature form submision
+    $product_settings = array(
+      'model'       => $product->model,
+      'quantity'    => 'test',
+      'lifetime'    => 1,
+    );
+    $this->drupalPost('node/'. $product->nid .'/edit/features/restrict_qty/add', $product_settings, t('Save feature'));
+    $this->assertText(t('You must enter 0 or a positive integer value.'), 'New product feature [validation]');
+    
+    // Save proper data
+    $product_settings['quantity'] = 1;
+    $this->drupalPost('node/'. $product->nid .'/edit/features/restrict_qty/add', $product_settings, t('Save feature'));
+    $this->assertText(t('The product feature has been added.'), 'New product feature [save|success message]');
+    $this->assertRaw('<td nowrap="nowrap">Restrict Qty</td>', 'New product feature [save|appeared in the table]');
+
+    // Double SKU submit check
+    $this->drupalPost('node/'. $product->nid .'/edit/features/restrict_qty/add', $product_settings, t('Save feature'));
+    $this->assertText(t('A quantity restriction has already been set up for this SKU'), 'New product feature [validation SKU]');
+    
+   $this->drupalGet('node/'. $product->nid .'/edit/features');
+   if (preg_match('|node/[0-9]*/edit/features/restrict_qty/[0-9]*|', $this->content, $matches)) {
+      $edit_url = $matches[0];
+      $this->drupalGet($edit_url);
+      $this->assertRaw('<input type="text" maxlength="5" name="quantity" id="edit-quantity" size="5" value="'. $product_settings['quantity'] .'" class="form-text" />', 'Check if new data saved [qty]');
+      $this->assertRaw('<input type="checkbox" name="lifetime" id="edit-lifetime" value="1"  checked="checked"  class="form-checkbox" />', 'Check if new data saved [lifetime]');
+
+      // Test feature form updation
+      $product_settings = array(
+        'model'       => $product->model,
+        'quantity'    => 55,
+        'lifetime'    => FALSE,
+      );
+      $this->drupalPost($edit_url, $product_settings, t('Save feature'));
+      $this->assertText(t('The product feature has been updated.'), 'Feature updated');
+      $this->drupalGet($edit_url);
+      $this->assertRaw('<input type="text" maxlength="5" name="quantity" id="edit-quantity" size="5" value="'. $product_settings['quantity'] .'" class="form-text" />', 'Check if updated data saved [qty]');
+      $this->assertRaw('<input type="checkbox" name="lifetime" id="edit-lifetime" value="1"   class="form-checkbox" />', 'Check if updated data saved [lifetime]');
+    }
+    else {
+      $this->fail('Feature edit link not found');
+    }
+  }
+
+  function testGlobalLimit() {
+    $limit = 2;
+    variable_set('uc_restrict_qty_global', $limit);
+    $product = $this->drupalCreateProduct();
+    $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+    $this->assertRaw(t('<strong>@product-title</strong> added to <a href="!url">your shopping cart</a>.', array('@product-title' => $product->title, '!url' => url('cart'))), 'Global limit [adding to cart below limit]');
+
+    $product = $this->drupalCreateProduct();
+    $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+    $this->assertRaw(t('<strong>@product-title</strong> added to <a href="!url">your shopping cart</a>.', array('@product-title' => $product->title, '!url' => url('cart'))), 'Global limit [close to limit]');
+
+    $product = $this->drupalCreateProduct();
+    $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+    $this->assertNoRaw(t('<strong>@product-title</strong> added to <a href="!url">your shopping cart</a>.', array('@product-title' => $product->title, '!url' => url('cart'))), 'Global limit [above the limit|not added]');
+    $this->assertRaw(format_plural($limit, "Sorry, you may only have a total of 1 item in your cart. You must <a href='@checkout'>checkout</a> or remove the item in <a href='@cart'>your cart</a> before adding a different item.",
+        "Sorry, you may only have a total of @count items in your cart. You must <a href='@checkout'>checkout</a> or remove items from <a href='@cart'>your cart</a> before adding others.", array('@cart' => url('cart'), '@checkout' => url('cart/checkout'))), 'Global limit [above the limit|message shown]');
+
+    variable_set('uc_restrict_qty_global', 0);
+    $product = $this->drupalCreateProduct();
+    $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+    $this->assertRaw(t('<strong>@product-title</strong> added to <a href="!url">your shopping cart</a>.', array('@product-title' => $product->title, '!url' => url('cart'))), 'Global limit [no limit]');
+  }
+
+  function testProductLimit() {
+    $admin = $this->drupalCreateUser(array('administer product features'));
+    $this->drupalLogin($admin);
+
+    $product = $this->drupalCreateProduct();
+    variable_set('uc_restrict_qty_global', 0);
+    $product_settings = array(
+      'model'       => $product->model,
+      'quantity'    => 1,
+      'lifetime'    => 0,
+    );
+    $this->drupalPost('node/'. $product->nid .'/edit/features/restrict_qty/add', $product_settings, t('Save feature'));
+
+    $user1 = $this->drupalCreateUser();
+    $this->drupalLogin($user1);
+
+    $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+    $this->assertRaw(t('<strong>@product-title</strong> added to <a href="!url">your shopping cart</a>.', array('@product-title' => $product->title, '!url' => url('cart'))), 'Product limit [#1 to add]');
+
+    // Single item should be not included into input field
+    $this->assertRaw('<td class="qty">1</td>', 'Global limit [#1 without input in cart]');
+
+    // Second should cause error
+    $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+    $this->assertRaw(format_plural($product_settings['quantity'], 'You may only add 1 !item to your cart. Quantity has been restricted.', 'You may only add @count !item to your cart. Quantity has been restricted.', array('!item' => $product->title)), 'Product limit [above the limit]');
+
+    $this->drupalLogin($admin);
+    $this->drupalGet('node/'. $product->nid .'/edit/features');
+    if (preg_match('|node/[0-9]*/edit/features/restrict_qty/[0-9]*|', $this->content, $matches)) {
+      $edit_url = $matches[0];
+      $product_settings = array(
+        'model'       => $product->model,
+        'quantity'    => 2,
+        'lifetime'    => FALSE,
+      );
+      $this->drupalPost($edit_url, $product_settings, t('Save feature'));
+
+      // Login another user (to get empty cart)
+      $user2 = $this->drupalCreateUser();
+      $this->drupalLogin($user2);
+
+      $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+      $this->assertRaw(t('<strong>@product-title</strong> added to <a href="!url">your shopping cart</a>.', array('@product-title' => $product->title, '!url' => url('cart'))), 'Product limit [#2 to add|first]');
+
+      // Item should be included into input field
+      $this->assertRaw('<input type="text" maxlength="6" name="items[0][qty]" id="edit-items-0-qty" size="5" value="1" class="form-text" />', 'Product limit [#2 with input in cart]');
+
+      $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+      $this->assertRaw(t('Your item(s) have been updated.'), '#2 to add|second');
+      $this->assertNoRaw(format_plural($product_settings['quantity'], 'You may only add 1 !item to your cart. Quantity has been restricted.', 'You may only add @count !item to your cart. Quantity has been restricted.', array('!item' => $product->title)), 'Product limit [#2 to add|second|no warnings]');
+
+      $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+      $this->assertRaw(format_plural($product_settings['quantity'], 'You may only add 1 !item to your cart. Quantity has been restricted.', 'You may only add @count !item to your cart. Quantity has been restricted.', array('!item' => $product->title)), 'Product limit [#2 to add|third|above limit warning]');
+      $this->assertRaw('<input type="text" maxlength="6" name="items[0][qty]" id="edit-items-0-qty" size="5" value="2" class="form-text" />', 'Product limit [#2 to add|third|#2 in cart]');
+
+      // Test lifetime limit
+      $this->drupalLogin($admin);
+      $product_settings = array(
+        'model'       => $product->model,
+        'quantity'    => 2,
+        'lifetime'    => 1,
+      );
+      $this->drupalPost($edit_url, $product_settings, t('Save feature'));
+
+      $user3 = $this->drupalCreateUser(array('view own orders'));
+      $this->drupalLogin($user3);
+      
+      $products = array($product);
+      $order = $this->drupalCreateOrder($products, $user3);
+      uc_order_update_status($order->order_id, 'completed');
+
+      $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+      $this->assertRaw(t('<strong>@product-title</strong> added to <a href="!url">your shopping cart</a>.', array('@product-title' => $product->title, '!url' => url('cart'))), 'Product lifetime limit [first and last]');
+
+      // It should be single item without input, as we have limit 2 with one alrready ordered
+      $this->assertRaw('<td class="qty">1</td>', 'Product lifetime limit [#1 without input in cart]');
+
+      // Second should cause error
+      $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+      $this->assertRaw(format_plural($product_settings['quantity'] - count($products), 'You may only add 1 !item to your cart. Quantity has been restricted.', 'You may only add @count !item to your cart. Quantity has been restricted.', array('!item' => $product->title)), 'Product lifetime limit [above the limit]');
+
+      // Restrict adding product to the cart, if limit has been reached
+      $this->drupalLogin($admin);
+      $product_settings = array(
+        'model'       => $product->model,
+        'quantity'    => 1,
+        'lifetime'    => 1,
+      );
+      $this->drupalPost($edit_url, $product_settings, t('Save feature'));
+      $this->drupalLogin($user3);
+
+      // Any adding to cart should cause warning, as everything available already ordered
+      $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
+      $this->assertRaw(t('Sorry, you have reached the quantity limit for this product. You can not order more items of this product.'), 'Product lifetime limit [above the limit]');
+    }
+    else {
+      $this->fail('Feature edit link not found');
+    }
+  }
+
+
+
+
+/**
+ * Implements hook_add_to_cart_data().
+ * @param $form_values
+ *   The values submitted to the Add to Cart form.
+ *
+ * @return
+ *   An array of data to be merged into the item added to the cart.
+ */
+function uc_restrict_qty_uc_add_to_cart_data($form_values) {
+  return array('restrict_qty' => uc_restrict_qty_count($form_values));
+}
+
+/**
+ * Implements of hook_uc_cart_item_update().
+ */
+function uc_restrict_qty_uc_cart_item_update($item) {
+  // Check if this item has a quantity restriction on it.
+  if (isset($item->data['restrict_qty']['qty']) && $item->data['restrict_qty']['qty'] > 0) {
+    $is_lifetime = isset($item->data['restrict_qty']['lifetime']) && $item->data['restrict_qty']['lifetime'];
+    $restrict_qty = $is_lifetime ? $item->data['restrict_qty']['rest'] : $item->data['restrict_qty']['qty'];
+    if ($item->qty > $restrict_qty) {
+      // Reduce the quantity to 1 if necessary.
+      $item->qty = $restrict_qty;
+      db_update('uc_cart_products')
+              ->fields(array('qty' => $restrict_qty, 'changed' => time()))
+              ->condition('cart_id', uc_cart_get_id())
+              ->condition('nid', $item->nid)
+              ->condition('data', serialize($item->data))
+              ->execute();
+      drupal_set_message(format_plural($restrict_qty, 'You may only add 1 !item to your cart. Quantity has been restricted.', 'You may only add @count !item to your cart. Quantity has been restricted.', array('!item' => $item->title)), 'warning');
+    }
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function uc_restrict_qty_form_alter(&$form, &$form_state, $form_id) {
+  // Disable the appropriate Qty. fields on the cart view form.
+  if ($form_id == 'uc_cart_view_form') {
+    for ($i = 0, $j = count(uc_cart_get_contents()); $i < $j; $i++) {
+      $data = unserialize($form['items'][$i]['data']['#value']);
+
+      // If this item has a quantity restriction on it.
+      if (isset($data['restrict_qty'])) {
+        $is_lifetime = isset($data['restrict_qty']['lifetime']) && $data['restrict_qty']['lifetime'];
+        $restrict_qty = $is_lifetime ? $data['restrict_qty']['rest'] : $data['restrict_qty']['qty'];
+        if ($restrict_qty == 1) {
+          $form['items'][$i]['qty']['#type'] = 'value';
+          $form['items'][$i]['qty']['#theme'] = 'restrict_qty_field';
+        }
+      }
+    }
+  }
+
+  if ($form_id == 'uc_product_feature_settings_form') {
+    $form['#validate'][] = 'uc_restrict_qty_settings_validate';
+  }
+}
+
+/**
+ *  Themes cart Qty. boxes so they can't be changed. (currently not in use)
+ */
+function theme_restrict_qty_field($variables) {
+  return check_plain($variables['form']['#value']);
+}
+
+/**
+ *  Returns the number of restrict_qty features on a product node.
+ */
+function uc_restrict_qty_count($form_values) {
+  global $user;
+
+  $data = db_query("SELECT qty, lifetime FROM {uc_restrict_qty_products} WHERE nid = :nid", array(':nid' => $form_values['nid']))->fetchAssoc();
+  if ($data['lifetime']) {
+    $bought_qty = db_query('SELECT SUM(uop.qty) FROM {uc_orders} uo LEFT JOIN {uc_order_products} uop ON uo.order_id = uop.order_id WHERE uo.order_status = :completed AND uo.uid = :uid AND uop.nid = :nid ORDER BY uop.nid', array(
+    ':completed' => 'completed',
+    ':uid' => $user->uid,
+    ':nid' => $form_values['nid']
+    ))->fetchField();
+    $data['rest'] = $data['qty'] - $bought_qty;
+  }
+
+  return $data;
+}
+
+/* ************************************************************************* *
+ *  Actions                                                                  *
+ * ************************************************************************* */
+
+/**
+ * Delete all data associated with a given node.
+ *
+ * @param obejct $node
+ *   A Drupal node object.
+ */
+function uc_restrict_qty_node_delete($node) {
+  db_delete('uc_restrict_qty_products')
+        ->condition('nid', $node->nid)
+        ->execute();
+}
+
+/**
+ * Delete all data associated with a given product feature.
+ *
+ * @param $pfid
+ *   An Ubercart product feature array.
+ */
+function uc_restrict_qty_feature_delete($feature) {
+  db_delete('uc_restrict_qty_products')
+        ->condition('pfid', $feature['pfid'])
+        ->execute();
+}
