@@ -49,8 +49,10 @@ function uc_restrict_qty_uc_product_feature() {
  * Implements hook_uc_add_to_cart().
  */
 function uc_restrict_qty_uc_add_to_cart($nid, $qty, $data) {
-  $limit = variable_get('uc_restrict_qty_global', 0);
-  $replacecart = variable_get('uc_restrict_qty_global_replace', FALSE);
+  //$limit = variable_get('uc_restrict_qty_global', 0);
+  $limit = \Drupal::state()->get('uc_restrict_qty_global', 0);
+  //$replacecart = variable_get('uc_restrict_qty_global_replace', FALSE);
+  $limit = \Drupal::state()->get('uc_restrict_qty_global_replace', FALSE);
   $result = NULL; // added by Jeff
 
   // If a global restriction on the number of items has been made.
@@ -254,7 +256,8 @@ function uc_restrict_qty_uc_add_to_cart($nid, $qty, $data) {
 
   function testGlobalLimit() {
     $limit = 2;
-    variable_set('uc_restrict_qty_global', $limit);
+    //variable_set('uc_restrict_qty_global', $limit);
+     \Drupal::state()->set('uc_restrict_qty_global', FALSE);
     $product = $this->drupalCreateProduct();
     $this->drupalPost('node/'. $product->nid, array(), t('Add to cart'));
     $this->assertRaw(t('<strong>@product-title</strong> added to <a href="!url">your shopping cart</a>.', array('@product-title' => $product->title, '!url' => url('cart'))), 'Global limit [adding to cart below limit]');

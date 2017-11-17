@@ -1,13 +1,11 @@
 <?php
-exit;
-namespace Drupal\uc_restrict_qty\Form;
 
+namespace Drupal\uc_restrict_qty\Form;
 use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Drupal\user\RoleInterface;
-
 
 /**
  * Grants roles upon accepted payment of products.
@@ -39,13 +37,15 @@ class RestrictQuantitySettingsForm extends ConfigFormBase {
     '#size' => 5,
     '#maxlength' => 5,
     '#description' => t('The number of different products that can be added to a cart. Set to 0 for unlimited.'),
-    '#default_value' => variable_get('uc_restrict_qty_global', 0),
+    //'#default_value' => variable_get('uc_restrict_qty_global', 0),
+    '#default_value' => \Drupal::state()->get('uc_restrict_qty_global', 0),
   );
   $form['uc_restrict_qty_global_replace'] = array(
     '#title' => t('Replace Contents'),
     '#type' => 'checkbox',
     '#description' => t('Enabling this feature will cause the users cart to be emptied if they add more items than the Global Limit set above. This is best used when you offer mutually exclusive content (such as subscription services) where purchasing more then one product is not a valid option.'),
-    '#default_value' => variable_get('uc_restrict_qty_global_replace', FALSE),
+    //'#default_value' => variable_get('uc_restrict_qty_global_replace', FALSE),
+    '#default_value' => \Drupal::state()->get('uc_restrict_qty_global_replace', FALSE),
   );
   $form['defaults'] = array(
     '#title' => t('Defaults'),
@@ -58,13 +58,14 @@ class RestrictQuantitySettingsForm extends ConfigFormBase {
     '#size' => 5,
     '#maxlength' => 5,
     '#description' => t('The number of products of single type that can be added to a cart. Set to 0 for unlimited.'),
-    '#default_value' => variable_get('uc_restrict_qty_default_qty', 0),
+    //'#default_value' => variable_get('uc_restrict_qty_default_qty', 0),
   );
   $form['defaults']['uc_restrict_qty_default_lifetime'] = array(
     '#title' => t("Is restriction is the user's lifetime limit"),
     '#type' => 'checkbox',
     '#description' => t("Useful when you want to prevent double ordering of a product."),
-    '#default_value' => variable_get('uc_restrict_qty_default_lifetime', FALSE),
+    //'#default_value' => variable_get('uc_restrict_qty_default_lifetime', FALSE),
+    '#default_value' => \Drupal::state()->get('uc_restrict_qty_default_lifetime', FALSE),
   );
 
 

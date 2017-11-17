@@ -25,7 +25,15 @@ class RestrictQuantityForm extends FormBase {
    * {@inheritdoc}
    */
   public function buildForm(array $form, FormStateInterface $form_state, NodeInterface $node = NULL, $feature = NULL) {
-    $models = uc_product_get_models($node->id());
+
+  //Get node id  
+  $node = \Drupal::routeMatch()->getParameter('node');
+  if ($node instanceof \Drupal\node\NodeInterface) {
+    // You can get nid and anything else you need from the node object.
+    $nid = $node->id();
+  }
+
+  $models = uc_product_get_models($node->id());
   if (!empty($feature)) {
     $product_qty = db_query("SELECT * FROM {uc_restrict_qty_products} WHERE pfid = :pfid", array(':pfid' => $feature['pfid']))->fetchObject();
 
@@ -45,7 +53,7 @@ class RestrictQuantityForm extends FormBase {
 
   $form['nid'] = array(
     '#type' => 'value',
-    '#value' => $node->nid,
+    '#value' => $nid,
   );
   $form['model'] = array(
     '#type' => 'select',
@@ -82,18 +90,25 @@ class RestrictQuantityForm extends FormBase {
    */
   public function validateForm(array &$form, FormStateInterface $form_state) {
       // Check for invalid quantity.
-  if (!is_numeric($form_state['values']['quantity']) || $form_state['values']['quantity'] < 0) {
-    form_set_error('uc_restrict_qty_product_qty', t('You must enter 0 or a positive integer value.'));
+  if (!is_numeric($form_state->getValue('quantity')) || $form_state->getValue('quantity') < 0) {
+   // form_set_error('uc_restrict_qty_product_qty', t('You must enter 0 or a positive integer value.'));
+    $form_state->setErrorByName('uc_restrict_qty_product_qty', t('You must enter 0 or a positive integer value.'));
   }
 
   // Check if this feature is already set on this SKU.
-  $product_roles = db_query("SELECT * FROM {uc_restrict_qty_products} WHERE nid = :nid AND model = :model", array(
-    ':nid' => $form_state['values']['nid'],
-    ':model' => $form_state['values']['model'],
-  ))->fetchObject();
+  // $product_roles = db_query("SELECT * FROM {uc_restrict_qty_products} WHERE nid = :nid AND model = :model", array(
+  //   ':nid' => $form_state['values']['nid'],
+  //   ':model' => $form_state['values']['model'],
+  // ))->fetchObject();
+     $product_roles = db_select('uc_restrict_qty_products', 'urqp')
+    ->fields('urqp', array('nid'))
+    ->condition('nid', $nid,'=')
+    ->execute()
+    ->fetchAssoc();
 
-  if ($product_roles && $form_state['values']['pfid'] == 0) {
-    form_set_error('uc_roles_model', t('A quantity restriction has already been set up for this SKU'));
+  if ($product_roles && $form_state->getValue('pfid') == 0) {
+    //form_set_error('uc_roles_model', t('A quantity restriction has already been set up for this SKU'));
+    $form_state->setErrorByName('uc_roles_model', t('A quantity restriction has already been set up for this SKU.'));
   }
   }
 
@@ -101,16 +116,14 @@ class RestrictQuantityForm extends FormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-print_r($form);
-exit;
 
   $product_qty = array(
-    'rqpid'       => isset($form_state['values']['rqpid']) ? $form_state['values']['rqpid'] : NULL,
-    'pfid'        => isset($form_state['values']['pfid']) ? $form_state['values']['pfid'] : NULL,
-    'nid'         => $form_state['values']['nid'],
-    'model'       => $form_state['values']['model'],
-    'qty'         => $form_state['values']['quantity'],
-    'lifetime'    => $form_state['values']['lifetime'],
+    'rqpid'       => $form_state->getValue('rqpid'),
+    'pfid'        => $form_state->getValue('pfid'),
+    'nid'         => $form_state->getValue('nid'),
+    'model'       => $form_state->getValue('model'),
+    'qty'         => $form_state->getValue('quantity'),
+    'lifetime'    => $form_state->getValue('lifetime'),
   );
 
   $description = '<strong>' . t('SKU') . ':</strong>' . (empty($product_qty['model']) ? t('Any') : $product_qty['model']) . '<br/>';
@@ -118,7 +131,7 @@ exit;
   $description .= '<strong>' . t('Type') . ':</strong>' . ($product_qty['lifetime'] ? t('Lifetime') : t('Cart max.')) . '<br/>';
 
   $data = array(
-    'nid' => $product_qty['nid'],
+    'nid' => $form_state->getValue('nid'),
     'fid' => 'restrict_qty',
     'description' => $description,
   );
@@ -127,7 +140,14 @@ exit;
     $data['pfid'] = $product_qty['pfid'];
   }
 
+
+
   $form_state['redirect'] = uc_product_feature_save($data);
+
+
+
+ // $form_state->setRedirect('redirect') = uc_product_feature_save($data);
+
 
   $key = array();
   if ($product_qty['rqpid']) {
