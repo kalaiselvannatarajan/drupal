@@ -116,7 +116,6 @@ class RestrictQuantityForm extends FormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-
   $product_qty = array(
     'rqpid'       => $form_state->getValue('rqpid'),
     'pfid'        => $form_state->getValue('pfid'),
@@ -140,14 +139,8 @@ class RestrictQuantityForm extends FormBase {
     $data['pfid'] = $product_qty['pfid'];
   }
 
-
-
-  $form_state['redirect'] = uc_product_feature_save($data);
-
-
-
- // $form_state->setRedirect('redirect') = uc_product_feature_save($data);
-
+ // $form_state['redirect'] = uc_product_feature_save($data);
+  $form_state->setRedirect = uc_product_feature_save($data);
 
   $key = array();
   if ($product_qty['rqpid']) {
@@ -159,7 +152,19 @@ class RestrictQuantityForm extends FormBase {
     $product_qty['pfid'] = $data['pfid'];
   }
 
-  drupal_write_record('uc_restrict_qty_products', $product_qty, $key);
+$insert_restrict_qty_products = db_insert('uc_restrict_qty_products')
+->fields(
+array(
+'rqpid' => $form_state->getValue('rqpid'),
+'pfid' => $product_qty['pfid'],
+'nid' => $form_state->getValue('nid'),
+'model' => $form_state->getValue('model'),
+'qty' => $form_state->getValue('quantity'),
+'lifetime' => $form_state->getValue('lifetime'),
+)
+)->execute();
+
+//  drupal_write_record('uc_restrict_qty_products', $product_qty, $key);
   }
 
 }
